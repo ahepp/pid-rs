@@ -42,6 +42,82 @@ pub struct ControlOutput<T: FloatCore> {
     pub output: T,
 }
 
+pub struct PidGains<T: FloatCore> {
+    /// Proportional gain.
+    pub kp: T,
+    /// Integral gain.
+    pub ki: T,
+    /// Derivative gain.
+    pub kd: T,
+}
+impl<T> PidGains<T>
+where
+    T: FloatCore,
+{
+    pub fn new(kp: T, ki: T, kd: T) -> Self {
+        Self { kp, ki, kd }
+    }
+}
+
+pub struct PidLimits<T: FloatCore> {
+    /// Limit of contribution of P term: `(-p_limit <= P <= p_limit)`
+    pub p_limit: T,
+    /// Limit of contribution of I term `(-i_limit <= I <= i_limit)`
+    pub i_limit: T,
+    /// Limit of contribution of D term `(-d_limit <= D <= d_limit)`
+    pub d_limit: T,
+    /// Limit of output `(-output_limit <= output <= output_limit)`
+    pub output_limit: T,
+}
+impl<T> PidLimits<T>
+where
+    T: FloatCore,
+{
+    pub fn new(p_limit: T, i_limit: T, d_limit: T, output_limit: T) -> Self {
+        Self {
+            p_limit,
+            i_limit,
+            d_limit,
+            output_limit,
+        }
+    }
+}
+
+pub struct PidBuilder<T: FloatCore> {
+    /// Controller p, i, and d gains
+    pub gains: PidGains<T>,
+    /// Controller p, i, and d limits
+    pub limits: PidLimits<T>,
+    pub setpoint: T,
+}
+impl<T> PidBuilder<T>
+where
+    T: FloatCore,
+{
+    pub fn new(gains: PidGains<T>, limits: PidLimits<T>, setpoint: T) -> Self {
+        Self {
+            gains,
+            limits,
+            setpoint,
+        }
+    }
+}
+
+impl<T: FloatCore> From<PidBuilder<T>> for Pid<T> {
+    fn from(item: PidBuilder<T>) -> Self {
+        Pid::new(
+            item.gains.kp,
+            item.gains.ki,
+            item.gains.kd,
+            item.limits.p_limit,
+            item.limits.i_limit,
+            item.limits.d_limit,
+            item.limits.output_limit,
+            item.setpoint,
+        )
+    }
+}
+
 impl<T> Pid<T>
 where
     T: FloatCore,
@@ -125,6 +201,9 @@ fn apply_limit<T: FloatCore>(limit: T, value: T) -> T {
 #[cfg(test)]
 mod tests {
     use super::Pid;
+    use super::PidGains;
+    use super::PidLimits;
+    use super::PidBuilder;
 
     #[test]
     fn proportional() {
@@ -236,5 +315,21 @@ mod tests {
             pid32.next_control_output(0.0).output as f64,
             pid64.next_control_output(0.0).output
         );
+    }
+
+    #[test]
+    fn builder() {
+        let gains = PidGains::new(2.0, 0.0, 0.0);
+        let limits = PidLimits::new(100.0, 100.0, 100.0, 100.0);
+        let builder = PidBuilder::new(gains, limits, 10.0);
+        let mut pid = Pid::from(builder);
+        assert_eq!(pid.setpoint, 10.0);
+
+        // Test simple proportional
+        assert_eq!(pid.next_control_output(0.0).output, 20.0);
+
+        // Test proportional limit
+        pid.p_limit = 10.0;
+        assert_eq!(pid.next_control_output(0.0).output, 10.0);
     }
 }
